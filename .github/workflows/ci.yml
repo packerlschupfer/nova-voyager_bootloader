@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      # Two flavors: 72 MHz (USB DFU support) and 120 MHz (ST-Link only, faster).
+      - name: Build bootloader
+        run: pio run -e nova_bootloader -e nova_bootloader_120 -e nova_bootloader_hsefail
+
+      # Fails the build if either image outgrows the 12KB region, and prints the
+      # headroom either way so it can't creep up unnoticed.
+      - name: Check bootloader size
+        run: ./tools/check-size.sh
+
+      # Exercises the shipping usb_dfu.c natively (registers and packet memory
+      # redirected to arrays) - covers EP0 packetisation and upload addressing.
+      - name: Host-side tests
+        run: ./tools/run-tests.sh

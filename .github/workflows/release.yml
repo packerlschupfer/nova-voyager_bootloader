@@ -1,0 +1,58 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build release bootloaders
+        run: pio run -e nova_bootloader -e nova_bootloader_120
+
+      # Fails the build if either image outgrows the 12KB region, and prints the
+      # headroom either way so it can't creep up unnoticed.
+      - name: Check bootloader size
+        run: ./tools/check-size.sh
+
+      - name: Collect release artifacts
+        run: |
+          mkdir -p release
+          for env in nova_bootloader nova_bootloader_120; do
+            for ext in bin elf; do
+              src=".pio/build/$env/firmware.$ext"
+              if [ -f "$src" ]; then
+                cp "$src" "release/${env}.${ext}"
+              fi
+            done
+          done
+          (cd release && sha256sum * > sha256sums.txt)
+          ls -la release/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
